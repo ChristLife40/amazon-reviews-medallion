@@ -1,0 +1,43 @@
+#cloud-config
+package_update: true
+packages:
+  - git
+  - openjdk-17-jre-headless
+  - python3-venv
+  - python3-pip
+write_files:
+  - path: /etc/reviews-worker.env
+    permissions: '0644'
+    content: |
+      STORAGE_MODE=azure
+      DATA_ROOT=/var/lib/reviews/work
+      AZURE_STORAGE_ACCOUNT=__STORAGE_ACCOUNT__
+      AZURE_CLIENT_ID=__MI_CLIENT_ID__
+      SPARK_DRIVER_MEMORY=2g
+      SPARK_SHUFFLE_PARTITIONS=8
+      SPARK_LOCAL_IP=127.0.0.1
+      HOME=/opt/reviews
+  - path: /etc/systemd/system/reviews-worker.service
+    permissions: '0644'
+    content: |
+      [Unit]
+      Description=Reviews pipeline worker
+      After=network-online.target
+      Wants=network-online.target
+      [Service]
+      User=reviews
+      EnvironmentFile=/etc/reviews-worker.env
+      WorkingDirectory=/opt/reviews
+      ExecStart=/opt/reviews/venv/bin/uvicorn reviews_pipeline.worker_api:app --host 0.0.0.0 --port 8080
+      Restart=always
+      RestartSec=5
+      [Install]
+      WantedBy=multi-user.target
+runcmd:
+  - useradd --system --home-dir /opt/reviews --shell /usr/sbin/nologin reviews
+  - mkdir -p /opt/reviews /var/lib/reviews/work
+  - python3 -m venv /opt/reviews/venv
+  - /opt/reviews/venv/bin/pip install --no-cache-dir 'git+https://github.com/__GH_USER__/amazon-reviews-medallion.git@__GIT_REF__'
+  - chown -R reviews:reviews /opt/reviews /var/lib/reviews
+  - systemctl daemon-reload
+  - systemctl enable --now reviews-worker
