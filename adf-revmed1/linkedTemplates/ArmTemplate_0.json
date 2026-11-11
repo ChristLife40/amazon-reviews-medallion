@@ -1,0 +1,690 @@
+{
+	"$schema": "http://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+	"contentVersion": "1.0.0.0",
+	"parameters": {
+		"factoryName": {
+			"type": "string",
+			"metadata": "Data Factory name",
+			"defaultValue": "adf-revmed1"
+		},
+		"AzureDataLakeStorage1_properties_typeProperties_url": {
+			"type": "string",
+			"defaultValue": "https://strevmed1.dfs.core.windows.net/"
+		},
+		"ls_adls_properties_typeProperties_url": {
+			"type": "string",
+			"defaultValue": "https://strevmed1.dfs.core.windows.net"
+		},
+		"trigger1_properties_pl_reviews_medallion_parameters_file_name": {
+			"type": "string",
+			"defaultValue": "Reviews.csv"
+		},
+		"trigger1_properties_pl_reviews_medallion_parameters_shard_count": {
+			"type": "int",
+			"defaultValue": 4
+		},
+		"trigger1_properties_pl_reviews_medallion_parameters_worker_count": {
+			"type": "int",
+			"defaultValue": 2
+		}
+	},
+	"variables": {
+		"factoryId": "[concat('Microsoft.DataFactory/factories/', parameters('factoryName'))]"
+	},
+	"resources": [
+		{
+			"name": "[concat(parameters('factoryName'), '/AzureDataLakeStorage1')]",
+			"type": "Microsoft.DataFactory/factories/linkedServices",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"annotations": [],
+				"type": "AzureBlobFS",
+				"typeProperties": {
+					"url": "[parameters('AzureDataLakeStorage1_properties_typeProperties_url')]"
+				}
+			},
+			"dependsOn": []
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/ir-shir')]",
+			"type": "Microsoft.DataFactory/factories/integrationRuntimes",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"type": "SelfHosted",
+				"typeProperties": {
+					"selfContainedInteractiveAuthoringEnabled": false
+				}
+			},
+			"dependsOn": []
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/ls_adls')]",
+			"type": "Microsoft.DataFactory/factories/linkedServices",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"annotations": [],
+				"type": "AzureBlobFS",
+				"typeProperties": {
+					"url": "[parameters('ls_adls_properties_typeProperties_url')]"
+				},
+				"connectVia": {
+					"referenceName": "ir-shir",
+					"type": "IntegrationRuntimeReference"
+				}
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/integrationRuntimes/ir-shir')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/ds_bronze_parquet')]",
+			"type": "Microsoft.DataFactory/factories/datasets",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"linkedServiceName": {
+					"referenceName": "ls_adls",
+					"type": "LinkedServiceReference"
+				},
+				"parameters": {
+					"batch_id": {
+						"type": "string"
+					}
+				},
+				"annotations": [],
+				"type": "Parquet",
+				"typeProperties": {
+					"location": {
+						"type": "AzureBlobFSLocation",
+						"folderPath": {
+							"value": "@concat('reviews/', dataset().batch_id)",
+							"type": "Expression"
+						},
+						"fileSystem": "bronze"
+					},
+					"compressionCodec": "snappy"
+				},
+				"schema": []
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/linkedServices/ls_adls')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/ds_landing_csv')]",
+			"type": "Microsoft.DataFactory/factories/datasets",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"linkedServiceName": {
+					"referenceName": "ls_adls",
+					"type": "LinkedServiceReference"
+				},
+				"parameters": {
+					"file_name": {
+						"type": "string"
+					}
+				},
+				"annotations": [],
+				"type": "DelimitedText",
+				"typeProperties": {
+					"location": {
+						"type": "AzureBlobFSLocation",
+						"fileName": {
+							"value": "@dataset().file_name",
+							"type": "Expression"
+						},
+						"folderPath": "amazon-fine-food",
+						"fileSystem": "landing"
+					},
+					"columnDelimiter": ",",
+					"escapeChar": "\"",
+					"firstRowAsHeader": true,
+					"quoteChar": "\""
+				},
+				"schema": []
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/linkedServices/ls_adls')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/pl_process')]",
+			"type": "Microsoft.DataFactory/factories/pipelines",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"activities": [
+					{
+						"name": "Copy_landing_csv",
+						"type": "Copy",
+						"dependsOn": [],
+						"policy": {
+							"timeout": "0.01:00:00",
+							"retry": 0,
+							"retryIntervalInSeconds": 30,
+							"secureOutput": false,
+							"secureInput": false
+						},
+						"userProperties": [],
+						"typeProperties": {
+							"source": {
+								"type": "DelimitedTextSource",
+								"additionalColumns": [
+									{
+										"name": "source_file",
+										"value": "$$FILEPATH"
+									},
+									{
+										"name": "batch_id",
+										"value": {
+											"value": "@pipeline().parameters.batch_id",
+											"type": "Expression"
+										}
+									},
+									{
+										"name": "ingest_ts",
+										"value": {
+											"value": "@utcNow()",
+											"type": "Expression"
+										}
+									}
+								],
+								"storeSettings": {
+									"type": "AzureBlobFSReadSettings",
+									"recursive": true,
+									"enablePartitionDiscovery": false
+								},
+								"formatSettings": {
+									"type": "DelimitedTextReadSettings"
+								}
+							},
+							"sink": {
+								"type": "ParquetSink",
+								"storeSettings": {
+									"type": "AzureBlobFSWriteSettings"
+								},
+								"formatSettings": {
+									"type": "ParquetWriteSettings"
+								}
+							},
+							"enableStaging": false,
+							"translator": {
+								"type": "TabularTranslator",
+								"typeConversion": true,
+								"typeConversionSettings": {
+									"allowDataTruncation": true,
+									"treatBooleanAsNumber": false
+								}
+							}
+						},
+						"inputs": [
+							{
+								"referenceName": "ds_landing_csv",
+								"type": "DatasetReference",
+								"parameters": {
+									"file_name": {
+										"value": "@pipeline().parameters.file_name",
+										"type": "Expression"
+									}
+								}
+							}
+						],
+						"outputs": [
+							{
+								"referenceName": "ds_bronze_parquet",
+								"type": "DatasetReference",
+								"parameters": {
+									"batch_id": {
+										"value": "@pipeline().parameters.batch_id",
+										"type": "Expression"
+									}
+								}
+							}
+						]
+					},
+					{
+						"name": "Scale_Vmss_up",
+						"type": "WebActivity",
+						"dependsOn": [],
+						"policy": {
+							"timeout": "0.0:15:00",
+							"retry": 1,
+							"retryIntervalInSeconds": 30,
+							"secureOutput": false,
+							"secureInput": false
+						},
+						"userProperties": [],
+						"typeProperties": {
+							"method": "PATCH",
+							"headers": {
+								"Content-Type": "application/json"
+							},
+							"httpRequestTimeout": "",
+							"url": "https://management.azure.com/subscriptions/09c2707f-3793-42a1-b114-81e317caa781/resourceGroups/rg-revmed-dev/providers/Microsoft.Compute/virtualMachineScaleSets/vmss-revmed?api-version=2024-07-01",
+							"connectVia": {
+								"referenceName": "ir-shir",
+								"type": "IntegrationRuntimeReference"
+							},
+							"body": {
+								"value": "@json(concat('{\"sku\":{\"name\":\"Standard_D2pls_v6\",\"tier\":\"Standard\",\"capacity\":', string(pipeline().parameters.worker_count), '}}'))",
+								"type": "Expression"
+							},
+							"authentication": {
+								"type": "MSI",
+								"resource": "https://management.azure.com/"
+							}
+						}
+					},
+					{
+						"name": "wait_for_workers",
+						"type": "Until",
+						"dependsOn": [
+							{
+								"activity": "Scale_Vmss_up",
+								"dependencyConditions": [
+									"Succeeded"
+								]
+							}
+						],
+						"userProperties": [],
+						"typeProperties": {
+							"expression": {
+								"value": "@equals(variables('ready'), true)",
+								"type": "Expression"
+							},
+							"activities": [
+								{
+									"name": "Probe_ilb_health",
+									"type": "WebActivity",
+									"dependsOn": [],
+									"policy": {
+										"timeout": "0.00:10:00",
+										"retry": 0,
+										"retryIntervalInSeconds": 30,
+										"secureOutput": false,
+										"secureInput": false
+									},
+									"userProperties": [],
+									"typeProperties": {
+										"method": "GET",
+										"headers": {},
+										"url": "http://10.0.3.10:8080/health",
+										"connectVia": {
+											"referenceName": "ir-shir",
+											"type": "IntegrationRuntimeReference"
+										}
+									}
+								},
+								{
+									"name": "Set_ready",
+									"type": "SetVariable",
+									"dependsOn": [
+										{
+											"activity": "Probe_ilb_health",
+											"dependencyConditions": [
+												"Succeeded"
+											]
+										}
+									],
+									"policy": {
+										"secureOutput": false,
+										"secureInput": false
+									},
+									"userProperties": [],
+									"typeProperties": {
+										"variableName": "pipelineReturnValue",
+										"value": [
+											{
+												"key": "ready",
+												"value": {
+													"type": "Boolean",
+													"content": true
+												}
+											}
+										],
+										"setSystemVariable": true
+									}
+								},
+								{
+									"name": "Wait_20s",
+									"type": "Wait",
+									"dependsOn": [
+										{
+											"activity": "Probe_ilb_health",
+											"dependencyConditions": [
+												"Failed"
+											]
+										}
+									],
+									"userProperties": [],
+									"typeProperties": {
+										"waitTimeInSeconds": 20
+									}
+								}
+							],
+							"timeout": "0.00:20:00"
+						}
+					},
+					{
+						"name": "ForEach_shard",
+						"type": "ForEach",
+						"dependsOn": [
+							{
+								"activity": "wait_for_workers",
+								"dependencyConditions": [
+									"Succeeded"
+								]
+							},
+							{
+								"activity": "Copy_landing_csv",
+								"dependencyConditions": [
+									"Succeeded"
+								]
+							}
+						],
+						"userProperties": [],
+						"typeProperties": {
+							"items": {
+								"value": "@range(0, pipeline().parameters.shard_count)",
+								"type": "Expression"
+							},
+							"batchCount": 4,
+							"activities": [
+								{
+									"name": "Process_shard",
+									"type": "WebActivity",
+									"dependsOn": [],
+									"policy": {
+										"timeout": "0.00:10:00",
+										"retry": 5,
+										"retryIntervalInSeconds": 60,
+										"secureOutput": false,
+										"secureInput": false
+									},
+									"userProperties": [],
+									"typeProperties": {
+										"method": "POST",
+										"headers": {
+											"Content-Type": "application/json"
+										},
+										"url": "http://10.0.3.10:8080/process",
+										"connectVia": {
+											"referenceName": "ir-shir",
+											"type": "IntegrationRuntimeReference"
+										},
+										"body": {
+											"value": "@json(concat('{\"batch_id\":\"', pipeline().parameters.batch_id, '\",\"shard\":', string(item()), ',\"shard_count\":', string(pipeline().parameters.shard_count), '}'))",
+											"type": "Expression"
+										}
+									}
+								}
+							]
+						}
+					},
+					{
+						"name": "Reduce_gold",
+						"type": "WebActivity",
+						"dependsOn": [
+							{
+								"activity": "ForEach_shard",
+								"dependencyConditions": [
+									"Succeeded"
+								]
+							}
+						],
+						"policy": {
+							"timeout": "0.00:10:00",
+							"retry": 2,
+							"retryIntervalInSeconds": 60,
+							"secureOutput": false,
+							"secureInput": false
+						},
+						"userProperties": [],
+						"typeProperties": {
+							"method": "POST",
+							"headers": {
+								"Content-Type": "application/json"
+							},
+							"url": "http://10.0.3.10.8080/reduce",
+							"connectVia": {
+								"referenceName": "ir-shir",
+								"type": "IntegrationRuntimeReference"
+							},
+							"body": {
+								"value": "@json(concat('{\"batch_id\":\"', pipeline().parameters.batch_id, '\"}'))",
+								"type": "Expression"
+							}
+						}
+					}
+				],
+				"policy": {
+					"elapsedTimeMetric": {}
+				},
+				"parameters": {
+					"file_name": {
+						"type": "string",
+						"defaultValue": "Reviews.csv"
+					},
+					"shard_count": {
+						"type": "int",
+						"defaultValue": 4
+					},
+					"batch_id": {
+						"type": "string"
+					},
+					"worker_count": {
+						"type": "int",
+						"defaultValue": 2
+					}
+				},
+				"variables": {
+					"ready": {
+						"type": "Boolean"
+					}
+				},
+				"annotations": [],
+				"lastPublishTime": "2026-11-11T02:14:54Z"
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/datasets/ds_landing_csv')]",
+				"[concat(variables('factoryId'), '/datasets/ds_bronze_parquet')]",
+				"[concat(variables('factoryId'), '/integrationRuntimes/ir-shir')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/pl_reviews_medallion')]",
+			"type": "Microsoft.DataFactory/factories/pipelines",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"activities": [
+					{
+						"name": "Set_batch",
+						"type": "SetVariable",
+						"dependsOn": [],
+						"policy": {
+							"secureOutput": false,
+							"secureInput": false
+						},
+						"userProperties": [],
+						"typeProperties": {
+							"variableName": "batch",
+							"value": {
+								"value": "@if(empty(pipeline().parameters.batch_id), formatDateTime(utcNow(), 'yyyyMMddHHmmss'), pipeline().parameters.batch_id)",
+								"type": "Expression"
+							}
+						}
+					},
+					{
+						"name": "Execute_process",
+						"type": "ExecutePipeline",
+						"dependsOn": [
+							{
+								"activity": "Set_batch",
+								"dependencyConditions": [
+									"Succeeded"
+								]
+							}
+						],
+						"policy": {
+							"secureInput": false
+						},
+						"userProperties": [],
+						"typeProperties": {
+							"pipeline": {
+								"referenceName": "pl_process",
+								"type": "PipelineReference"
+							},
+							"waitOnCompletion": true,
+							"parameters": {
+								"file_name": {
+									"value": "@pipeline().parameters.file_name",
+									"type": "Expression"
+								},
+								"shard_count": {
+									"value": "@pipeline().parameters.shard_count",
+									"type": "Expression"
+								},
+								"batch_id": {
+									"value": "@variables('batch')",
+									"type": "Expression"
+								},
+								"worker_count": {
+									"value": "@pipeline().parameters.worker_count",
+									"type": "Expression"
+								}
+							}
+						}
+					},
+					{
+						"name": "Scale_vmss_down",
+						"type": "WebActivity",
+						"dependsOn": [
+							{
+								"activity": "Execute_process",
+								"dependencyConditions": [
+									"Completed"
+								]
+							}
+						],
+						"policy": {
+							"timeout": "0.00:15:00",
+							"retry": 1,
+							"retryIntervalInSeconds": 30,
+							"secureOutput": false,
+							"secureInput": false
+						},
+						"userProperties": [],
+						"typeProperties": {
+							"method": "PATCH",
+							"headers": {
+								"Content-Type": "application/json"
+							},
+							"url": "https://management.azure.com/subscriptions/09c2707f-3793-42a1-b114-81e317caa781/resourceGroups/rg-revmed-dev/providers/Microsoft.Compute/virtualMachineScaleSets/vmss-revmed?api-version=2024-07-01",
+							"connectVia": {
+								"referenceName": "ir-shir",
+								"type": "IntegrationRuntimeReference"
+							},
+							"body": {
+								"sku": {
+									"name": "Standard_D2pls_v6",
+									"tier": "Standard",
+									"capacity": 0
+								}
+							},
+							"authentication": {
+								"type": "MSI",
+								"resource": "https://management.azure.com/"
+							}
+						}
+					},
+					{
+						"name": "Fail_pipeline",
+						"type": "Fail",
+						"dependsOn": [
+							{
+								"activity": "Scale_vmss_down",
+								"dependencyConditions": [
+									"Succeeded"
+								]
+							},
+							{
+								"activity": "Execute_process",
+								"dependencyConditions": [
+									"Failed"
+								]
+							}
+						],
+						"userProperties": [],
+						"typeProperties": {
+							"message": "Processing Failed. Workers were scaled down.",
+							"errorCode": "PROCESSING_FAILED"
+						}
+					}
+				],
+				"policy": {
+					"elapsedTimeMetric": {}
+				},
+				"parameters": {
+					"file_name": {
+						"type": "string",
+						"defaultValue": "Reviews.csv"
+					},
+					"batch_id": {
+						"type": "string"
+					},
+					"shard_count": {
+						"type": "int",
+						"defaultValue": 4
+					},
+					"worker_count": {
+						"type": "int",
+						"defaultValue": 2
+					}
+				},
+				"variables": {
+					"batch": {
+						"type": "String"
+					}
+				},
+				"annotations": [],
+				"lastPublishTime": "2026-11-11T02:14:55Z"
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/pipelines/pl_process')]",
+				"[concat(variables('factoryId'), '/integrationRuntimes/ir-shir')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/trigger1')]",
+			"type": "Microsoft.DataFactory/factories/triggers",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"annotations": [],
+				"runtimeState": "Stopped",
+				"pipelines": [
+					{
+						"pipelineReference": {
+							"referenceName": "pl_reviews_medallion",
+							"type": "PipelineReference"
+						},
+						"parameters": {
+							"file_name": "[parameters('trigger1_properties_pl_reviews_medallion_parameters_file_name')]",
+							"shard_count": "[parameters('trigger1_properties_pl_reviews_medallion_parameters_shard_count')]",
+							"worker_count": "[parameters('trigger1_properties_pl_reviews_medallion_parameters_worker_count')]"
+						}
+					}
+				],
+				"type": "ScheduleTrigger",
+				"typeProperties": {
+					"recurrence": {
+						"frequency": "Minute",
+						"interval": 15,
+						"startTime": "2026-11-11T03:13:00",
+						"timeZone": "Eastern Standard Time"
+					}
+				}
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/pipelines/pl_reviews_medallion')]"
+			]
+		}
+	]
+}

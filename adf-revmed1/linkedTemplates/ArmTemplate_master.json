@@ -1,0 +1,77 @@
+{
+	"$schema": "http://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+	"contentVersion": "1.0.0.0",
+	"parameters": {
+		"factoryName": {
+			"type": "string",
+			"metadata": "Data Factory name",
+			"defaultValue": "adf-revmed1"
+		},
+		"AzureDataLakeStorage1_properties_typeProperties_url": {
+			"type": "string",
+			"defaultValue": "https://strevmed1.dfs.core.windows.net/"
+		},
+		"ls_adls_properties_typeProperties_url": {
+			"type": "string",
+			"defaultValue": "https://strevmed1.dfs.core.windows.net"
+		},
+		"trigger1_properties_pl_reviews_medallion_parameters_file_name": {
+			"type": "string",
+			"defaultValue": "Reviews.csv"
+		},
+		"trigger1_properties_pl_reviews_medallion_parameters_shard_count": {
+			"type": "int",
+			"defaultValue": 4
+		},
+		"trigger1_properties_pl_reviews_medallion_parameters_worker_count": {
+			"type": "int",
+			"defaultValue": 2
+		},
+		"containerUri": {
+			"type": "string",
+			"metadata": "URI to storage account containing linked ARM templates"
+		},
+		"containerSasToken": {
+			"type": "string",
+			"metadata": "Sas token to storage account containing linked ARM templates"
+		}
+	},
+	"variables": {
+		"factoryId": "[concat('Microsoft.DataFactory/factories/', parameters('factoryName'))]"
+	},
+	"resources": [
+		{
+			"name": "adf-revmed1_ArmTemplate_0",
+			"type": "Microsoft.Resources/deployments",
+			"apiVersion": "2024-03-01",
+			"properties": {
+				"mode": "incremental",
+				"templateLink": {
+					"uri": "[concat(parameters('containerUri'), '/ArmTemplate_0.json', parameters('containerSasToken'))]",
+					"contentVersion": "1.0.0.0"
+				},
+				"parameters": {
+					"factoryName": {
+						"value": "[parameters('factoryName')]"
+					},
+					"AzureDataLakeStorage1_properties_typeProperties_url": {
+						"value": "[parameters('AzureDataLakeStorage1_properties_typeProperties_url')]"
+					},
+					"ls_adls_properties_typeProperties_url": {
+						"value": "[parameters('ls_adls_properties_typeProperties_url')]"
+					},
+					"trigger1_properties_pl_reviews_medallion_parameters_file_name": {
+						"value": "[parameters('trigger1_properties_pl_reviews_medallion_parameters_file_name')]"
+					},
+					"trigger1_properties_pl_reviews_medallion_parameters_shard_count": {
+						"value": "[parameters('trigger1_properties_pl_reviews_medallion_parameters_shard_count')]"
+					},
+					"trigger1_properties_pl_reviews_medallion_parameters_worker_count": {
+						"value": "[parameters('trigger1_properties_pl_reviews_medallion_parameters_worker_count')]"
+					}
+				}
+			},
+			"dependsOn": []
+		}
+	]
+}

@@ -1,0 +1,24 @@
+{
+	"$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentParameters.json#",
+	"contentVersion": "1.0.0.0",
+	"parameters": {
+		"factoryName": {
+			"value": "adf-revmed1"
+		},
+		"AzureDataLakeStorage1_properties_typeProperties_url": {
+			"value": "https://strevmed1.dfs.core.windows.net/"
+		},
+		"ls_adls_properties_typeProperties_url": {
+			"value": "https://strevmed1.dfs.core.windows.net"
+		},
+		"trigger1_properties_pl_reviews_medallion_parameters_file_name": {
+			"value": "Reviews.csv"
+		},
+		"trigger1_properties_pl_reviews_medallion_parameters_shard_count": {
+			"value": 4
+		},
+		"trigger1_properties_pl_reviews_medallion_parameters_worker_count": {
+			"value": 2
+		}
+	}
+}
