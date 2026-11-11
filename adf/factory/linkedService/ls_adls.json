@@ -1,0 +1,15 @@
+{
+	"name": "ls_adls",
+	"type": "Microsoft.DataFactory/factories/linkedservices",
+	"properties": {
+		"annotations": [],
+		"type": "AzureBlobFS",
+		"typeProperties": {
+			"url": "https://strevmed1.dfs.core.windows.net"
+		},
+		"connectVia": {
+			"referenceName": "ir-shir",
+			"type": "IntegrationRuntimeReference"
+		}
+	}
+}

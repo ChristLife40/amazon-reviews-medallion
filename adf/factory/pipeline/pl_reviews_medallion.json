@@ -1,0 +1,155 @@
+{
+	"name": "pl_reviews_medallion",
+	"properties": {
+		"activities": [
+			{
+				"name": "Set_batch",
+				"type": "SetVariable",
+				"dependsOn": [],
+				"policy": {
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"variableName": "batch",
+					"value": {
+						"value": "@if(empty(pipeline().parameters.batch_id), formatDateTime(utcNow(), 'yyyyMMddHHmmss'), pipeline().parameters.batch_id)",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "Execute_process",
+				"type": "ExecutePipeline",
+				"dependsOn": [
+					{
+						"activity": "Set_batch",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"pipeline": {
+						"referenceName": "pl_process",
+						"type": "PipelineReference"
+					},
+					"waitOnCompletion": true,
+					"parameters": {
+						"file_name": {
+							"value": "@pipeline().parameters.file_name",
+							"type": "Expression"
+						},
+						"shard_count": {
+							"value": "@pipeline().parameters.shard_count",
+							"type": "Expression"
+						},
+						"batch_id": {
+							"value": "@variables('batch')",
+							"type": "Expression"
+						},
+						"worker_count": {
+							"value": "@pipeline().parameters.worker_count",
+							"type": "Expression"
+						}
+					}
+				}
+			},
+			{
+				"name": "Scale_vmss_down",
+				"type": "WebActivity",
+				"dependsOn": [
+					{
+						"activity": "Execute_process",
+						"dependencyConditions": [
+							"Completed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "0.00:15:00",
+					"retry": 1,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"method": "PATCH",
+					"headers": {
+						"Content-Type": "application/json"
+					},
+					"url": "https://management.azure.com/subscriptions/09c2707f-3793-42a1-b114-81e317caa781/resourceGroups/rg-revmed-dev/providers/Microsoft.Compute/virtualMachineScaleSets/vmss-revmed?api-version=2024-07-01",
+					"connectVia": {
+						"referenceName": "ir-shir",
+						"type": "IntegrationRuntimeReference"
+					},
+					"body": {
+						"sku": {
+							"name": "Standard_D2pls_v6",
+							"tier": "Standard",
+							"capacity": 0
+						}
+					},
+					"authentication": {
+						"type": "MSI",
+						"resource": "https://management.azure.com/"
+					}
+				}
+			},
+			{
+				"name": "Fail_pipeline",
+				"type": "Fail",
+				"dependsOn": [
+					{
+						"activity": "Scale_vmss_down",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					},
+					{
+						"activity": "Execute_process",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"message": "Processing Failed. Workers were scaled down.",
+					"errorCode": "PROCESSING_FAILED"
+				}
+			}
+		],
+		"parameters": {
+			"file_name": {
+				"type": "string",
+				"defaultValue": "Reviews.csv"
+			},
+			"batch_id": {
+				"type": "string"
+			},
+			"shard_count": {
+				"type": "int",
+				"defaultValue": 4
+			},
+			"worker_count": {
+				"type": "int",
+				"defaultValue": 2
+			}
+		},
+		"variables": {
+			"batch": {
+				"type": "String"
+			}
+		},
+		"annotations": [],
+		"lastPublishTime": "2026-11-11T02:14:55Z"
+	},
+	"type": "Microsoft.DataFactory/factories/pipelines"
+}

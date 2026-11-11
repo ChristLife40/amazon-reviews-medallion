@@ -1,0 +1,15 @@
+{
+	"name": "adf-revmed1",
+	"properties": {
+		"trustModeClaimForMi": {
+			"value": "Disabled",
+			"editable": true
+		}
+	},
+	"location": "canadacentral",
+	"identity": {
+		"type": "SystemAssigned",
+		"principalId": "b83aac3e-d538-4d8c-b634-8c35690c0f28",
+		"tenantId": "d77ee63b-1a2e-4862-ab58-6b7cb86fc803"
+	}
+}
